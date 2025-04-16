@@ -45,6 +45,8 @@ export async function POST(req: NextRequest) {
       return new Response("No user message found", { status: 400 })
     }
 
+    let groundingMetadata: GoogleGroundingMetadata ;
+
     // Create a stream using the Google Gemini model with search grounding
     const result = await streamText({
       model: google("gemini-2.5-pro-exp-03-25", {
@@ -56,26 +58,24 @@ export async function POST(req: NextRequest) {
       onFinish: ({ text, providerMetadata }) => {
         // Log the full provider metadata to inspect its structure
         console.log("Stream finished with text:", text.substring(0, 100) + "...")
-        //console.log("Provider metadata:", JSON.stringify(providerMetadata, null, 2))
+        console.log("Provider metadata:", JSON.stringify(providerMetadata, null, 2))
 
         // Specifically log the groundingMetadata if it exists
         const metadata = providerMetadata as unknown as GoogleProviderMetadata
         if (metadata?.google?.groundingMetadata) {
-         // console.log("Grounding metadata structure:", JSON.stringify(metadata.google.groundingMetadata, null, 2))
+          // Extract sources from the provider metadata 
+          groundingMetadata = metadata.google.groundingMetadata;
+          console.log("Grounding metadata structure:", JSON.stringify(metadata.google.groundingMetadata, null, 2))
 
           // Log specific parts of interest
-          // console.log("webSearchQueries:", metadata.google.groundingMetadata.webSearchQueries)
-          // console.log("groundingChunks count:", metadata.google.groundingMetadata.groundingChunks?.length || 0)
-          // console.log("groundingSupports count:", metadata.google.groundingMetadata.groundingSupports?.length || 0)
+          console.log("webSearchQueries:", metadata.google.groundingMetadata.webSearchQueries)
+          console.log("groundingChunks count:", metadata.google.groundingMetadata.groundingChunks?.length || 0)
+          console.log("groundingSupports count:", metadata.google.groundingMetadata.groundingSupports?.length || 0)
         } else {
           console.log("No grounding metadata found in the response")
         }
       },
     })
-
-    // Extract sources from the provider metadata - use type assertion to fix the error
-    const metadata = result.providerMetadata as unknown as GoogleProviderMetadata
-    const groundingMetadata = metadata?.google?.groundingMetadata
 
     // Replace the streaming implementation with this improved version that ensures sources are sent
 
@@ -114,8 +114,7 @@ export async function POST(req: NextRequest) {
           async close() {
             textComplete = true
             console.log("Text stream complete, metadata sent:", metadataSent)
-  // Add a small delay to ensure all data is processed
-  await new Promise((resolve) => setTimeout(resolve, 700))
+
             // If we haven't sent metadata yet, do it now
             if (!metadataSent && groundingMetadata) {
               console.log("Sending metadata at stream close")
@@ -135,7 +134,7 @@ export async function POST(req: NextRequest) {
             }
 
             // Add a small delay to ensure all data is processed
-            // await new Promise((resolve) => setTimeout(resolve, 200))
+            await new Promise((resolve) => setTimeout(resolve, 200))
             console.log("Closing writer")
             await writer.close()
           },

@@ -94,6 +94,7 @@ export function useSearchChat() {
             try {
               const data = JSON.parse(line.substring(6))
               console.log("Received data type:", data.type)
+
               if (data.type === "text") {
                 accumulatedContent += data.content
                 setMessages((prev) => {
@@ -105,10 +106,11 @@ export function useSearchChat() {
                   return newMessages
                 })
               } else if (data.type === "sources" && data.content) {
+                console.log("Received sources data:", data.content)
                 // Process sources from grounding metadata using the updated structure
                 const groundingMetadata = data.content as GoogleGroundingMetadata
                 const extractedSources: Source[] = []
-                console.log("Grounding Metadata:", groundingMetadata)
+
                 // Extract sources from groundingChunks
                 if (groundingMetadata.groundingChunks) {
                   groundingMetadata.groundingChunks.forEach((chunk) => {
@@ -126,15 +128,16 @@ export function useSearchChat() {
                   (source, index, self) => index === self.findIndex((s) => s.url === source.url),
                 )
 
-                setSources(extractedSources)
+                console.log("Extracted sources:", uniqueSources)
+                setSources(uniqueSources)
               }
             } catch (e) {
-              console.error("Error parsing SSE data:", e)
+              console.error("Error parsing SSE data:", e, "Raw data:", line.substring(6))
             }
           }
         }
       } catch (error) {
-        // if (error.name !== "AbortError") {
+        //if (error.name !== "AbortError") {
           console.error("Error in chat:", error)
           setMessages((prev) => {
             const newMessages = [...prev]
@@ -144,7 +147,7 @@ export function useSearchChat() {
             }
             return newMessages
           })
-       // }
+        //}
       } finally {
         setIsLoading(false)
         abortControllerRef.current = null
