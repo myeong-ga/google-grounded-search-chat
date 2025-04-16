@@ -45,7 +45,9 @@ export async function POST(req: NextRequest) {
       return new Response("No user message found", { status: 400 })
     }
 
-    let groundingMetadata: GoogleGroundingMetadata ;
+    // Declare a variable in the outer scope to store the grounding metadata
+    let capturedGroundingMetadata: GoogleGroundingMetadata | undefined = undefined
+    let metadataReady = false
 
     // Create a stream using the Google Gemini model with search grounding
     const result = await streamText({
@@ -58,72 +60,48 @@ export async function POST(req: NextRequest) {
       onFinish: ({ text, providerMetadata }) => {
         // Log the full provider metadata to inspect its structure
         console.log("Stream finished with text:", text.substring(0, 100) + "...")
-        console.log("Provider metadata:", JSON.stringify(providerMetadata, null, 2))
 
-        // Specifically log the groundingMetadata if it exists
+        // Specifically extract and store the groundingMetadata if it exists
         const metadata = providerMetadata as unknown as GoogleProviderMetadata
         if (metadata?.google?.groundingMetadata) {
-          // Extract sources from the provider metadata 
-          groundingMetadata = metadata.google.groundingMetadata;
-          console.log("Grounding metadata structure:", JSON.stringify(metadata.google.groundingMetadata, null, 2))
+          console.log("Found grounding metadata in onFinish, storing it")
+          capturedGroundingMetadata = metadata.google.groundingMetadata
+          metadataReady = true
 
           // Log specific parts of interest
-          console.log("webSearchQueries:", metadata.google.groundingMetadata.webSearchQueries)
-          console.log("groundingChunks count:", metadata.google.groundingMetadata.groundingChunks?.length || 0)
-          console.log("groundingSupports count:", metadata.google.groundingMetadata.groundingSupports?.length || 0)
+          // console.log("webSearchQueries:", capturedGroundingMetadata.webSearchQueries)
+          // console.log("groundingChunks count:", capturedGroundingMetadata.groundingChunks?.length || 0)
+          // console.log("groundingSupports count:", capturedGroundingMetadata.groundingSupports?.length || 0)
         } else {
           console.log("No grounding metadata found in the response")
         }
       },
     })
 
-    // Replace the streaming implementation with this improved version that ensures sources are sent
-
     // Create a custom stream that includes both text and sources
     const textEncoder = new TextEncoder()
     const customStream = new TransformStream()
     const writer = customStream.writable.getWriter()
-
-    // First, ensure we have the metadata before starting to stream
-    let metadataSent = false
-    let textComplete = false
-    let bufferedText = ""
 
     // Stream the text response
     result.textStream
       .pipeTo(
         new WritableStream({
           async write(chunk) {
-            bufferedText += chunk
             await writer.write(textEncoder.encode(`data: ${JSON.stringify({ type: "text", content: chunk })}\n\n`))
-
-            // Check if we can send metadata early (once we have some content)
-            if (!metadataSent && groundingMetadata && bufferedText.length > 100) {
-              console.log("Sending metadata early during streaming")
-              metadataSent = true
-              await writer.write(
-                textEncoder.encode(
-                  `data: ${JSON.stringify({
-                    type: "sources",
-                    content: groundingMetadata,
-                  })}\n\n`,
-                ),
-              )
-            }
           },
           async close() {
-            textComplete = true
-            console.log("Text stream complete, metadata sent:", metadataSent)
+            console.log("Text stream complete, metadata ready:", metadataReady)
 
-            // If we haven't sent metadata yet, do it now
-            if (!metadataSent && groundingMetadata) {
-              console.log("Sending metadata at stream close")
+            // Use the captured metadata from onFinish
+            if (metadataReady && capturedGroundingMetadata) {
+              console.log("Sending metadata at stream close using captured metadata")
               try {
                 await writer.write(
                   textEncoder.encode(
                     `data: ${JSON.stringify({
                       type: "sources",
-                      content: groundingMetadata,
+                      content: capturedGroundingMetadata,
                     })}\n\n`,
                   ),
                 )
@@ -131,6 +109,8 @@ export async function POST(req: NextRequest) {
               } catch (error) {
                 console.error("Error sending metadata:", error)
               }
+            } else {
+              console.log("No metadata available to send")
             }
 
             // Add a small delay to ensure all data is processed
@@ -146,19 +126,6 @@ export async function POST(req: NextRequest) {
       )
       .catch((error) => {
         console.error("Error in pipeTo:", error)
-        if (!metadataSent && groundingMetadata && !writer.closed) {
-          console.log("Attempting to send metadata after pipeTo error")
-          writer
-            .write(
-              textEncoder.encode(
-                `data: ${JSON.stringify({
-                  type: "sources",
-                  content: groundingMetadata,
-                })}\n\n`,
-              ),
-            )
-            .catch((e) => console.error("Failed to write metadata after error:", e))
-        }
         writer.close().catch((e) => console.error("Failed to close writer after error:", e))
       })
 
