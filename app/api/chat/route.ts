@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
     // Create a stream using the Google Gemini model with search grounding
     const result = await streamText({
-      model: google("gemini-2.0-flash-exp", {
+      model: google("gemini-2.0-flash", {
         useSearchGrounding: true,
       }),
       prompt: lastUserMessage.content,

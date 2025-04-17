@@ -12,7 +12,6 @@ import { Send, StopCircle } from "lucide-react"
 
 export function Chat() {
   const { messages, input, isLoading, sources, handleSubmit, handleInputChange, stopGenerating } = useSearchChat()
-  console.log("sources", sources)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
