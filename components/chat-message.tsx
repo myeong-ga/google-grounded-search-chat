@@ -1,6 +1,6 @@
 import type React from "react"
 import { cn } from "@/lib/utils"
-import type { Message } from "@/hooks/use-search-chat"
+import type { Message } from "ai"
 import { User, Bot } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"

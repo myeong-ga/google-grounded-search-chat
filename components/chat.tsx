@@ -1,20 +1,50 @@
 "use client"
 
 import type React from "react"
-
-import { useRef, useEffect } from "react"
-import { useSearchChat } from "@/hooks/use-search-chat"
+import { useRef, useEffect, useState } from "react"
+import { useChat } from "@ai-sdk/react"
 import { ChatMessage } from "@/components/chat-message"
 import { SourcesList } from "@/components/sources-list"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Send, StopCircle } from "lucide-react"
+import type { Source } from "@/lib/types"
 
 export function Chat() {
-  const { messages, input, isLoading, sources, handleSubmit, handleInputChange, stopGenerating } = useSearchChat()
+  const { messages, input, isLoading, data, handleInputChange, handleSubmit, stop } = useChat({
+    api: "/api/chat",
+    // Add some options to improve the experience
+    id: "search-grounded-chat",
+    initialMessages: [],
+  })
+  const [sources, setSources] = useState<Source[]>([])
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Extract sources from data when it changes
+  useEffect(() => {
+    if (data && Array.isArray(data)) {
+      // Look for sources in the data array
+      for (const item of data) {
+        if (item && typeof item === "object" && "type" in item && item.type === "sources") {
+          if ("sources" in item && Array.isArray(item.sources)) {
+            console.log("Found sources in data:", item.sources)
+            setSources(item.sources as Source[])
+            return
+          }
+        }
+      }
+    }
+  }, [data])
+
+  // Clear sources when submitting a new message
+  useEffect(() => {
+    if (isLoading) {
+      setSources([])
+    }
+  }, [isLoading])
 
   // Auto-scroll to bottom of messages
   useEffect(() => {
@@ -71,7 +101,7 @@ export function Chat() {
             />
             <div className="absolute right-2 bottom-2">
               {isLoading ? (
-                <Button type="button" size="icon" variant="ghost" onClick={stopGenerating} className="h-8 w-8">
+                <Button type="button" size="icon" variant="ghost" onClick={stop} className="h-8 w-8">
                   <StopCircle className="h-4 w-4" />
                   <span className="sr-only">Stop generating</span>
                 </Button>

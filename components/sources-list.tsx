@@ -1,6 +1,6 @@
 import { ExternalLink } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import type { Source } from "@/hooks/use-search-chat"
+import type { Source } from "@/lib/types"
 
 interface SourcesListProps {
   sources: Source[]

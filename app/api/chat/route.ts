@@ -1,5 +1,6 @@
+import { SYSTEM_PROMPT } from "@/lib/system-prompt"
 import { google } from "@ai-sdk/google"
-import { streamText } from "ai"
+import { createDataStreamResponse, streamText } from "ai"
 import type { NextRequest } from "next/server"
 
 // Updated interface to match Google Gemini API structure
@@ -45,103 +46,81 @@ export async function POST(req: NextRequest) {
       return new Response("No user message found", { status: 400 })
     }
 
-    // Declare a variable in the outer scope to store the grounding metadata
-    let capturedGroundingMetadata: GoogleGroundingMetadata | undefined = undefined
-    let metadataReady = false
+    // Use createDataStreamResponse which is designed for this exact use case
+    return createDataStreamResponse({
+      execute: async (dataStream) => {
+        // Log that we're starting
+        console.log("Starting stream execution")
 
-    // Create a stream using the Google Gemini model with search grounding
-    const result = await streamText({
-      model: google("gemini-2.5-flash-preview-04-17", {
-        useSearchGrounding: true,
-      }),
-      prompt: lastUserMessage.content,
-      providerOptions: {
-        google: {
-          thinkingConfig: {
-            thinkingBudget: 3000,
+        // Create a stream using the Google Gemini model with search grounding
+        const result = streamText({
+          model: google("gemini-2.5-flash-preview-04-17", {
+            useSearchGrounding: true,
+          }),
+          system: SYSTEM_PROMPT,
+          messages,
+          providerOptions: {
+            google: {
+              thinkingConfig: {
+                thinkingBudget: 3000,
+              },
+            },
           },
-        },
-      },
-      temperature: 0.7,
-      maxTokens: 10000,
-      onFinish: ({ text, providerMetadata , usage }) => {
-        // Log the full provider metadata to inspect its structure
-        console.log("Stream finished with text:", text.substring(0, 100) + "...")
-        console.log("usages :" , usage)
-     
-        // Specifically extract and store the groundingMetadata if it exists
-        const metadata = providerMetadata as unknown as GoogleProviderMetadata
-        if (metadata?.google?.groundingMetadata) {
-          console.log("Found grounding metadata in onFinish, storing it")
-          capturedGroundingMetadata = metadata.google.groundingMetadata
-          metadataReady = true
-
-          // Log specific parts of interest
-          // console.log("webSearchQueries:", capturedGroundingMetadata.webSearchQueries)
-          // console.log("groundingChunks count:", capturedGroundingMetadata.groundingChunks?.length || 0)
-          // console.log("groundingSupports count:", capturedGroundingMetadata.groundingSupports?.length || 0)
-        } else {
-          console.log("No grounding metadata found in the response")
-        }
-      },
-    })
-
-    // Create a custom stream that includes both text and sources
-    const textEncoder = new TextEncoder()
-    const customStream = new TransformStream()
-    const writer = customStream.writable.getWriter()
-
-    // Stream the text response
-    result.textStream
-      .pipeTo(
-        new WritableStream({
-          async write(chunk) {
-            await writer.write(textEncoder.encode(`data: ${JSON.stringify({ type: "text", content: chunk })}\n\n`))
-          },
-          async close() {
-            console.log("Text stream complete, metadata ready:", metadataReady)
-
-            // Use the captured metadata from onFinish
-            if (metadataReady && capturedGroundingMetadata) {
-              console.log("Sending metadata at stream close using captured metadata")
-              try {
-                await writer.write(
-                  textEncoder.encode(
-                    `data: ${JSON.stringify({
-                      type: "sources",
-                      content: capturedGroundingMetadata,
-                    })}\n\n`,
-                  ),
-                )
-                console.log("Metadata sent successfully")
-              } catch (error) {
-                console.error("Error sending metadata:", error)
-              }
-            } else {
-              console.log("No metadata available to send")
+          temperature: 0.7,
+          maxTokens: 10000,
+          // 1. Text streaming in onChunk handler
+          onChunk: ({ chunk }) => {
+            // Stream text chunks in real-time to the client
+            if (chunk.type === "text-delta") {
+              console.log("Streaming text chunk:", chunk.textDelta.length, "chars")
+              dataStream.writeData({ type: "text-delta", text: chunk.textDelta })
             }
-
-            // Add a small delay to ensure all data is processed
-            await new Promise((resolve) => setTimeout(resolve, 200))
-            console.log("Closing writer")
-            await writer.close()
           },
-          abort(reason) {
-            console.error("Stream aborted:", reason)
-            writer.abort(reason)
-          },
-        }),
-      )
-      .catch((error) => {
-        console.error("Error in pipeTo:", error)
-        writer.close().catch((e) => console.error("Failed to close writer after error:", e))
-      })
+          // 2. Sources processing in onFinish handler
+          onFinish: ({ text, providerMetadata }) => {
+            console.log("onFinish called, text length:", text.length)
 
-    return new Response(customStream.readable, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+            // Extract and send sources
+            try {
+              const metadata = providerMetadata as unknown as GoogleProviderMetadata
+              if (metadata?.google?.groundingMetadata) {
+                console.log("Found grounding metadata in onFinish, sending to client")
+
+                // Extract sources from groundingChunks
+                const sources: { url: string; title: string }[] = []
+                if (metadata.google.groundingMetadata.groundingChunks) {
+                  metadata.google.groundingMetadata.groundingChunks.forEach((chunk) => {
+                    if (chunk.web && chunk.web.uri) {
+                      sources.push({
+                        url: chunk.web.uri,
+                        title: chunk.web.title || new URL(chunk.web.uri).hostname,
+                      })
+                    }
+                  })
+                }
+
+                // Send the processed sources directly
+                if (sources.length > 0) {
+                  console.log(`Sending ${sources.length} sources to client`)
+                  dataStream.writeData({ type: "sources", sources })
+                } else {
+                  console.log("No sources found in metadata")
+                }
+              } else {
+                console.log("No grounding metadata found in onFinish")
+              }
+            } catch (error) {
+              console.error("Error processing metadata in onFinish:", error)
+            }
+          },
+        })
+
+        // Merge the text stream into our data stream
+        result.mergeIntoDataStream(dataStream)
+      },
+      onError: (error) => {
+        console.error("Error in stream:", error)
+        return error instanceof Error ? error.message : String(error)
       },
     })
   } catch (error) {

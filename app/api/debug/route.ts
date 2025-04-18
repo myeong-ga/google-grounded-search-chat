@@ -1,3 +1,4 @@
+import { SYSTEM_PROMPT } from "@/lib/system-prompt"
 import { google } from "@ai-sdk/google"
 import { streamText } from "ai"
 import type { NextRequest } from "next/server"
@@ -19,17 +20,12 @@ export async function POST(req: NextRequest) {
     let groundingMetadata: any = null
 
     // Use streamText with onFinish to capture the metadata
-    const result = await streamText({
-
-      // model: google("gemini-2.5-pro-exp-03-25", {
-      //   useSearchGrounding: true,
-      // }),
-      
+    const result = streamText({
       model: google("gemini-2.5-flash-preview-04-17", {
         useSearchGrounding: true,
       }),
+      system: SYSTEM_PROMPT,
       prompt,
-    
       providerOptions: {
         google: {
           thinkingConfig: {
@@ -39,6 +35,13 @@ export async function POST(req: NextRequest) {
       },
       temperature: 0.7,
       maxTokens: 10000,
+      onChunk: ({ chunk }) => {
+        // Stream text chunks in real-time to the client
+        if (chunk.type === "reasoning") {
+          console.log("reasoning chunk:",chunk.textDelta)
+          //dataStream.writeData({ type: "text-delta", text: chunk.textDelta })
+        }
+      },
       onFinish: ({ providerMetadata }) => {
         metadata = providerMetadata
         // Try to extract the groundingMetadata
@@ -57,16 +60,6 @@ export async function POST(req: NextRequest) {
       fullText += chunk
     }
 
-    for await (const part of result.fullStream) {
-      console.log(part);
-      // if (part.type === 'reasoning') {
-      //   process.stdout.write('\x1b[34m' + part.textDelta + '\x1b[0m');
-      // } else if (part.type === 'text-delta') {
-      //   process.stdout.write(part.textDelta);
-      // }
-    }
-
-    
     // Return the metadata and text
     return new Response(
       JSON.stringify({
