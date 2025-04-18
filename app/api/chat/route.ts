@@ -51,16 +51,24 @@ export async function POST(req: NextRequest) {
 
     // Create a stream using the Google Gemini model with search grounding
     const result = await streamText({
-      model: google("gemini-2.0-flash", {
+      model: google("gemini-2.5-flash-preview-04-17", {
         useSearchGrounding: true,
       }),
       prompt: lastUserMessage.content,
+      providerOptions: {
+        google: {
+          thinkingConfig: {
+            thinkingBudget: 3000,
+          },
+        },
+      },
       temperature: 0.7,
-      maxTokens: 1024,
-      onFinish: ({ text, providerMetadata }) => {
+      maxTokens: 10000,
+      onFinish: ({ text, providerMetadata , usage }) => {
         // Log the full provider metadata to inspect its structure
         console.log("Stream finished with text:", text.substring(0, 100) + "...")
-
+        console.log("usages :" , usage)
+     
         // Specifically extract and store the groundingMetadata if it exists
         const metadata = providerMetadata as unknown as GoogleProviderMetadata
         if (metadata?.google?.groundingMetadata) {

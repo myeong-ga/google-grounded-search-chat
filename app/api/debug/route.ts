@@ -20,12 +20,25 @@ export async function POST(req: NextRequest) {
 
     // Use streamText with onFinish to capture the metadata
     const result = await streamText({
-      model: google("gemini-2.0-flash-exp", {
+
+      // model: google("gemini-2.5-pro-exp-03-25", {
+      //   useSearchGrounding: true,
+      // }),
+      
+      model: google("gemini-2.5-flash-preview-04-17", {
         useSearchGrounding: true,
       }),
       prompt,
+    
+      providerOptions: {
+        google: {
+          thinkingConfig: {
+            thinkingBudget: 3000,
+          },
+        },
+      },
       temperature: 0.7,
-      maxTokens: 1024,
+      maxTokens: 10000,
       onFinish: ({ providerMetadata }) => {
         metadata = providerMetadata
         // Try to extract the groundingMetadata
@@ -44,6 +57,16 @@ export async function POST(req: NextRequest) {
       fullText += chunk
     }
 
+    for await (const part of result.fullStream) {
+      console.log(part);
+      // if (part.type === 'reasoning') {
+      //   process.stdout.write('\x1b[34m' + part.textDelta + '\x1b[0m');
+      // } else if (part.type === 'text-delta') {
+      //   process.stdout.write(part.textDelta);
+      // }
+    }
+
+    
     // Return the metadata and text
     return new Response(
       JSON.stringify({
