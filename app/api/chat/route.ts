@@ -1,6 +1,6 @@
 import { SYSTEM_PROMPT } from "@/lib/system-prompt"
 import { google } from "@ai-sdk/google"
-import { createDataStreamResponse, streamText } from "ai"
+import { createDataStreamResponse, streamText , smoothStream } from "ai"
 import type { NextRequest } from "next/server"
 
 // Updated interface to match Google Gemini API structure
@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
           },
           temperature: 0.7,
           maxTokens: 10000,
+          
           // 1. Text streaming in onChunk handler
           onChunk: ({ chunk }) => {
             // Stream text chunks in real-time to the client
@@ -76,6 +77,10 @@ export async function POST(req: NextRequest) {
               dataStream.writeData({ type: "text-delta", text: chunk.textDelta })
             }
           },
+          // experimental_transform: smoothStream({
+          //   delayInMs: 20, // optional: defaults to 10ms
+          //   chunking: 'line', // optional: defaults to 'word'
+          // }),
           // 2. Sources processing in onFinish handler
           onFinish: ({ text, providerMetadata }) => {
             console.log("onFinish called, text length:", text.length)
